@@ -16,7 +16,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CartEventProducer {
 
-    public static final String ORDER_CREATED_TOPIC = "order.created";
+    public static final String CHECKOUT_TOPIC = "cart.checkout";
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ObjectMapper objectMapper;
@@ -32,10 +32,10 @@ public class CartEventProducer {
                         .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add)
         );
         try {
-            kafkaTemplate.send(ORDER_CREATED_TOPIC, orderId, objectMapper.writeValueAsString(payload));
-            log.info("Published {} event for order {} and user {}", ORDER_CREATED_TOPIC, orderId, userId);
+            kafkaTemplate.send(CHECKOUT_TOPIC, orderId, objectMapper.writeValueAsString(payload));
+            log.info("Published {} event for order {} and user {}", CHECKOUT_TOPIC, orderId, userId);
         } catch (Exception e) {
-            log.error("Failed to publish {} event for user {}", ORDER_CREATED_TOPIC, userId, e);
+            log.error("Failed to publish {} event for user {}", CHECKOUT_TOPIC, userId, e);
             throw new IllegalStateException("Could not publish checkout event", e);
         }
     }
