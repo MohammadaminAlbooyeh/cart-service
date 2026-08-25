@@ -10,15 +10,15 @@ Lightweight shopping cart microservice for an e-commerce system. Manages user sh
 - **Persistence:** Spring Data Redis (HashOperations)
 - **Messaging:** Spring for Apache Kafka
 - **API Docs:** SpringDoc OpenAPI (Swagger UI)
-- **Security:** Spring Security + JWT (opaque tokens)
+- **Security:** Spring Security + JWT (HMAC-SHA256)
 - **Container:** Docker (eclipse-temurin:17-jre-alpine)
 
 ## Architecture
 
 ```
-HTTP Request
+HTTP Request (Authorization: Bearer <JWT>)
     ↓
-[Spring Security JwtAuthFilter] → validates token, extracts userId
+[Spring Security OAuth2 Resource Server] → validates JWT using shared secret (HS256)
     ↓
 CartController (REST API, port 8082)
     ↓
@@ -97,7 +97,7 @@ mvn test
 
 ## API Endpoints
 
-All endpoints require the `X-User-Id` header **and** a valid JWT Bearer token.
+All endpoints require a valid JWT Bearer token in the `Authorization` header. The user identity is extracted from the token subject by Spring Security and passed to the controller as a `Principal`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -125,21 +125,20 @@ http://localhost:8082/v3/api-docs
 
 ## Security
 
-The service uses Spring Security with JWT Bearer tokens (opaque token validation).
+The service uses Spring Security as an OAuth2 resource server with JWT Bearer tokens validated using a shared HMAC-SHA256 (HS256) secret.
 
 ### Authentication Flow
 
 1. Client sends a request with `Authorization: Bearer <token>` header.
-2. `JwtAuthFilter` validates the token against the configured introspection endpoint.
-3. The user ID is extracted from the validated token and set in the request context.
-4. The `X-User-Id` header is set automatically from the token — clients do not need to send it manually.
+2. Spring Security's `JwtDecoder` validates the token signature using the shared `JWT_SECRET`.
+3. The authenticated user identity (`Principal`) is injected into controller methods.
+4. The `sub` (subject) claim of the JWT is used as the `userId` for cart operations.
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `JWT_ISSUER_URI` | OAuth2 authorization server URI (for token validation) | — |
-| `JWT_INTROSPECTION_URI` | Token introspection endpoint | — |
+| `JWT_SECRET` | HMAC-SHA256 secret used to validate JWT Bearer tokens | `dev-secret-change-me-in-production` |
 | `REDIS_HOST` | Redis host | `localhost` |
 | `REDIS_PORT` | Redis port | `6379` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | `localhost:29092` |
@@ -187,6 +186,11 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  security:
+    oauth2:
+      resource-server:
+        jwt:
+          secret: ${JWT_SECRET:dev-secret-change-me-in-production}
 
 springdoc:
   swagger-ui:
@@ -219,6 +223,7 @@ Run the container:
 docker run -p 8082:8082 \
   -e REDIS_HOST=host.docker.internal \
   -e KAFKA_BOOTSTRAP_SERVERS=host.docker.internal:29092 \
+  -e JWT_SECRET=dev-secret-change-me-in-production \
   cart-service
 ```
 
