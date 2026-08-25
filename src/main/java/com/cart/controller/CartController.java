@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
+import java.security.Principal;
 import java.util.List;
 import java.util.Map;
 
@@ -28,50 +29,50 @@ public class CartController {
     private final CartService cartService;
 
     @GetMapping
-    public List<CartItem> getCart(@RequestHeader("X-User-Id") String userId) {
-        return cartService.getCart(userId);
+    public List<CartItem> getCart(Principal principal) {
+        return cartService.getCart(principal.getName());
     }
 
     @PostMapping("/items")
-    public ResponseEntity<CartItem> addItem(@RequestHeader("X-User-Id") String userId,
+    public ResponseEntity<CartItem> addItem(Principal principal,
                                             @Valid @RequestBody CartItem item) {
-        cartService.addItem(userId, item);
+        cartService.addItem(principal.getName(), item);
         return ResponseEntity.status(HttpStatus.CREATED).body(item);
     }
 
     @PutMapping("/items/{productId}")
-    public ResponseEntity<Void> updateQuantity(@RequestHeader("X-User-Id") String userId,
+    public ResponseEntity<Void> updateQuantity(Principal principal,
                                                @PathVariable String productId,
                                                @RequestBody Map<String, Integer> body) {
         Integer quantity = body.get("quantity");
         if (quantity == null) {
             return ResponseEntity.badRequest().build();
         }
-        cartService.updateQuantity(userId, productId, quantity);
+        cartService.updateQuantity(principal.getName(), productId, quantity);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/items/{productId}")
-    public ResponseEntity<Void> removeItem(@RequestHeader("X-User-Id") String userId,
+    public ResponseEntity<Void> removeItem(Principal principal,
                                            @PathVariable String productId) {
-        cartService.removeItem(userId, productId);
+        cartService.removeItem(principal.getName(), productId);
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping
-    public ResponseEntity<Void> clearCart(@RequestHeader("X-User-Id") String userId) {
-        cartService.clearCart(userId);
+    public ResponseEntity<Void> clearCart(Principal principal) {
+        cartService.clearCart(principal.getName());
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/total")
-    public Map<String, BigDecimal> total(@RequestHeader("X-User-Id") String userId) {
-        return Map.of("totalAmount", cartService.calculateTotal(userId));
+    public Map<String, BigDecimal> total(Principal principal) {
+        return Map.of("totalAmount", cartService.calculateTotal(principal.getName()));
     }
 
     @PostMapping("/checkout")
-    public ResponseEntity<Void> checkout(@RequestHeader("X-User-Id") String userId) {
-        cartService.checkout(userId);
+    public ResponseEntity<Void> checkout(Principal principal) {
+        cartService.checkout(principal.getName());
         return ResponseEntity.accepted().build();
     }
 }

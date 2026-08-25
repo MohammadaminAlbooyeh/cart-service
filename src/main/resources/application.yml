@@ -13,6 +13,11 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  security:
+    oauth2:
+      resource-server:
+        jwt:
+          secret: ${JWT_SECRET:dev-secret-change-me-in-production}
 
 springdoc:
   swagger-ui:
