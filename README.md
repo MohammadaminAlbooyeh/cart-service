@@ -15,6 +15,38 @@ Lightweight shopping cart microservice for an e-commerce system. Manages user sh
 
 ## Architecture
 
+### System Architecture
+
+```mermaid
+flowchart LR
+    Client(["Client"])
+    UserSvc["user-service\n(issues JWT)"]
+
+    subgraph CartService["cart-service :8082"]
+        Sec["Spring Security\nOAuth2 Resource Server\n(validates JWT, HS256)"]
+        Ctrl["CartController\n(REST API)"]
+        Svc["CartService\n(business logic)"]
+        Repo["CartRedisRepository"]
+        Producer["CartEventProducer"]
+    end
+
+    Redis[("Redis\ncart:&lt;userId&gt;")]
+    Kafka{{"Kafka\ntopic: cart.checkout"}}
+    Downstream["Downstream consumers\n(order, payment, inventory)"]
+
+    Client -- "Authorization: Bearer JWT" --> Sec
+    UserSvc -. "issues JWT (shared secret)" .-> Client
+    Sec --> Ctrl
+    Ctrl --> Svc
+    Svc --> Repo
+    Repo <--> Redis
+    Svc -- "checkout()" --> Producer
+    Producer -- "publish" --> Kafka
+    Kafka --> Downstream
+```
+
+### Request Flow (text)
+
 ```
 HTTP Request (Authorization: Bearer <JWT>)
     ↓
@@ -36,6 +68,42 @@ CartEventProducer.publishOrderCreated()
 Kafka topic: cart.checkout
     ↓
 [Downstream consumers - order, payment, inventory]
+```
+
+### File Structure
+
+```
+cart-service/
+├── Dockerfile
+├── docker-compose.yml
+├── pom.xml
+├── README.md
+└── src/
+    ├── main/
+    │   ├── java/com/cart/
+    │   │   ├── CartApplication.java          # Spring Boot entry point
+    │   │   ├── config/
+    │   │   │   └── SecurityConfig.java        # JWT resource server config
+    │   │   ├── controller/
+    │   │   │   └── CartController.java        # REST API (/api/cart)
+    │   │   ├── exception/
+    │   │   │   └── GlobalExceptionHandler.java
+    │   │   ├── messaging/
+    │   │   │   └── CartEventProducer.java     # Publishes cart.checkout to Kafka
+    │   │   ├── model/
+    │   │   │   └── CartItem.java
+    │   │   ├── repository/
+    │   │   │   └── CartRedisRepository.java   # Redis persistence
+    │   │   └── service/
+    │   │       └── CartService.java           # Business logic
+    │   └── resources/
+    │       ├── application.yml                # Default config
+    │       └── application-dev.yml            # Local dev overrides
+    └── test/
+        └── java/com/cart/
+            ├── CartCheckoutContractTest.java          # Kafka contract test
+            └── security/
+                └── CartControllerSecurityTest.java    # JWT auth tests
 ```
 
 ## Prerequisites
