@@ -17,32 +17,45 @@ Lightweight shopping cart microservice for an e-commerce system. Manages user sh
 
 ### System Architecture
 
-```mermaid
-flowchart LR
-    Client(["Client"])
-    UserSvc["user-service\n(issues JWT)"]
-
-    subgraph CartService["cart-service :8082"]
-        Sec["Spring Security\nOAuth2 Resource Server\n(validates JWT, HS256)"]
-        Ctrl["CartController\n(REST API)"]
-        Svc["CartService\n(business logic)"]
-        Repo["CartRedisRepository"]
-        Producer["CartEventProducer"]
-    end
-
-    Redis[("Redis\ncart:&lt;userId&gt;")]
-    Kafka{{"Kafka\ntopic: cart.checkout"}}
-    Downstream["Downstream consumers\n(order, payment, inventory)"]
-
-    Client -- "Authorization: Bearer JWT" --> Sec
-    UserSvc -. "issues JWT (shared secret)" .-> Client
-    Sec --> Ctrl
-    Ctrl --> Svc
-    Svc --> Repo
-    Repo <--> Redis
-    Svc -- "checkout()" --> Producer
-    Producer -- "publish" --> Kafka
-    Kafka --> Downstream
+```text
+┌───────────────────┐          ┌────────────────────┐
+│    user-service     │  issues  │       Client         │
+│  (issues JWT, HS256)│─────────▶│                      │
+└───────────────────┘          └──────────┬──────────┘
+                                            │ Authorization: Bearer <JWT>
+                                            ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                       cart-service  (:8082)                        │
+│                                                                      │
+│   ┌──────────────────────────────┐                                 │
+│   │   Spring Security             │                                 │
+│   │   OAuth2 Resource Server      │  validates JWT signature         │
+│   │   (shared HS256 secret)       │                                 │
+│   └──────────────┬────────────────┘                                 │
+│                   ▼                                                  │
+│   ┌──────────────────────────────┐                                 │
+│   │        CartController          │  REST API                       │
+│   └──────────────┬────────────────┘                                 │
+│                   ▼                                                  │
+│   ┌──────────────────────────────┐                                 │
+│   │          CartService           │  business logic                 │
+│   └───────┬───────────────┬───────┘                                 │
+│           ▼                 ▼                                       │
+│   ┌───────────────┐   ┌────────────────────┐                       │
+│   │ CartRedis      │   │ CartEventProducer   │                       │
+│   │ Repository     │   │                     │                       │
+│   └───────┬───────┘   └──────────┬──────────┘                       │
+└───────────┼───────────────────────┼───────────────────────────────┘
+            ▼                       ▼
+   ┌─────────────────┐    ┌───────────────────────┐
+   │      Redis        │    │        Kafka            │
+   │  cart:<userId>     │    │  topic: cart.checkout    │
+   └─────────────────┘    └───────────┬───────────┘
+                                        ▼
+                            ┌───────────────────────────┐
+                            │   Downstream consumers       │
+                            │ (order, payment, inventory)   │
+                            └───────────────────────────┘
 ```
 
 ### Request Flow (text)
