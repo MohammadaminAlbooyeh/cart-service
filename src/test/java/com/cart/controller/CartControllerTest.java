@@ -54,7 +54,7 @@ class CartControllerTest {
     void addItemRejectsInvalidBody() throws Exception {
         String body = objectMapper.writeValueAsString(Map.of("name", "Laptop", "quantity", 0));
 
-        mockMvc.perform(post("/api/cart/items").header("Authorization", bearer("u1"))
+        mockMvc.perform(post("/api/v1/cart/items").header("Authorization", bearer("u1"))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
     }
@@ -64,7 +64,7 @@ class CartControllerTest {
         String body = objectMapper.writeValueAsString(Map.of(
                 "productId", "p1", "name", "Laptop", "unitPrice", 1200, "quantity", 1));
 
-        mockMvc.perform(post("/api/cart/items").header("Authorization", bearer("u1"))
+        mockMvc.perform(post("/api/v1/cart/items").header("Authorization", bearer("u1"))
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated());
 
@@ -73,7 +73,7 @@ class CartControllerTest {
 
     @Test
     void updateQuantityRejectsMissingQuantity() throws Exception {
-        mockMvc.perform(put("/api/cart/items/p1").header("Authorization", bearer("u1"))
+        mockMvc.perform(put("/api/v1/cart/items/p1").header("Authorization", bearer("u1"))
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest());
     }
@@ -82,16 +82,16 @@ class CartControllerTest {
     void totalReturnsAmount() throws Exception {
         when(cartService.calculateTotal("u1")).thenReturn(new BigDecimal("1250"));
 
-        mockMvc.perform(get("/api/cart/total").header("Authorization", bearer("u1")))
+        mockMvc.perform(get("/api/v1/cart/total").header("Authorization", bearer("u1")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalAmount").value(1250));
     }
 
     @Test
     void checkoutOnEmptyCartReturnsConflict() throws Exception {
-        doThrow(new IllegalStateException("Cart is empty")).when(cartService).checkout("u1");
+        doThrow(new IllegalStateException("Cart is empty")).when(cartService).checkout("u1", null);
 
-        mockMvc.perform(post("/api/cart/checkout").header("Authorization", bearer("u1")))
+        mockMvc.perform(post("/api/v1/cart/checkout").header("Authorization", bearer("u1")))
                 .andExpect(status().isConflict());
     }
 

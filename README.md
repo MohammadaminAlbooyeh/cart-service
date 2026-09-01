@@ -96,10 +96,12 @@ cart-service/
     │   ├── java/com/cart/
     │   │   ├── CartApplication.java          # Spring Boot entry point
     │   │   ├── config/
-    │   │   │   ├── SecurityConfig.java        # JWT resource server config
-    │   │   │   └── OpenApiConfig.java         # Swagger bearer-auth scheme
+    │   │   │   ├── AppProperties.java         # Typed configuration (app.*)
+    │   │   │   ├── OpenApiConfig.java         # Swagger bearer-auth scheme
+    │   │   │   ├── RateLimitFilter.java       # In-memory rate limiter
+    │   │   │   └── SecurityConfig.java        # JWT resource server + CORS
     │   │   ├── controller/
-    │   │   │   └── CartController.java        # REST API (/api/cart)
+    │   │   │   └── CartController.java        # REST API (/api/v1/cart)
     │   │   ├── dto/
     │   │   │   └── UpdateQuantityRequest.java
     │   │   ├── exception/
@@ -193,13 +195,13 @@ All endpoints require a valid JWT Bearer token in the `Authorization` header. Th
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/cart` | Get all cart items for user |
-| `POST` | `/api/cart/items` | Add item to cart |
-| `PUT` | `/api/cart/items/{productId}` | Update item quantity |
-| `DELETE` | `/api/cart/items/{productId}` | Remove item from cart |
-| `DELETE` | `/api/cart` | Clear entire cart |
-| `GET` | `/api/cart/total` | Calculate cart total |
-| `POST` | `/api/cart/checkout` | Publish checkout event + clear cart |
+| `GET` | `/api/v1/cart` | Get all cart items for user |
+| `POST` | `/api/v1/cart/items` | Add item to cart |
+| `PUT` | `/api/v1/cart/items/{productId}` | Update item quantity |
+| `DELETE` | `/api/v1/cart/items/{productId}` | Remove item from cart |
+| `DELETE` | `/api/v1/cart` | Clear entire cart |
+| `GET` | `/api/v1/cart/total` | Calculate cart total |
+| `POST` | `/api/v1/cart/checkout` | Publish checkout event + clear cart |
 
 Adding the same `productId` again increments the stored quantity rather than
 replacing it.
@@ -209,8 +211,34 @@ replacing it.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/actuator/health` | Liveness/readiness health check |
+| `GET` | `/actuator/prometheus` | Prometheus metrics scrape endpoint |
 | `GET` | `/swagger-ui.html` | Swagger UI |
 | `GET` | `/v3/api-docs` | OpenAPI spec |
+
+### Idempotent checkout
+
+`POST /api/v1/cart/checkout` accepts an optional `Idempotency-Key` header. A
+repeated key (within `CHECKOUT_IDEMPOTENCY_TTL`) is acknowledged with `202`
+without re-publishing the `cart.checkout` event, so client retries are safe.
+
+### Rate limiting
+
+Requests are limited per authenticated user (per client IP when anonymous) using
+an in-memory fixed window. Responses carry `X-RateLimit-Limit` /
+`X-RateLimit-Remaining`; exceeding the limit returns `429`. Disable with
+`RATE_LIMIT_ENABLED=false`. For multi-instance deployments move the counter to
+Redis.
+
+### Observability
+
+- Metrics: Micrometer + `/actuator/prometheus`
+- Tracing: Micrometer Tracing (Brave bridge); sample rate via `TRACING_SAMPLE_RATE`
+
+### Kafka producer resilience
+
+The producer runs with `acks=all`, idempotence enabled and retries
+(`delivery.timeout.ms=120000`). `checkout()` blocks on the broker ack, so a
+failed publish surfaces as `409` and the cart is **not** cleared.
 
 ## API Documentation
 
@@ -237,17 +265,26 @@ The service uses Spring Security as an OAuth2 resource server with JWT Bearer to
 3. The authenticated user identity (`Principal`) is injected into controller methods.
 4. The `sub` (subject) claim of the JWT is used as the `userId` for cart operations.
 
-`/actuator/health`, `/swagger-ui/**` and `/v3/api-docs/**` are the only unauthenticated paths.
+`/actuator/health/**`, `/actuator/prometheus`, `/actuator/info`, `/swagger-ui/**`
+and `/v3/api-docs/**` are the only unauthenticated paths. CORS is configurable
+via `CORS_ALLOWED_ORIGINS` / `CORS_ALLOWED_METHODS`.
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `JWT_SECRET` | HMAC-SHA256 secret used to validate JWT Bearer tokens | `dev-secret-change-me-in-production` |
+| `JWT_ALLOW_INSECURE_SECRET` | When `false`, the service refuses to start with the built-in dev secret | `true` |
 | `REDIS_HOST` | Redis host | `localhost` |
 | `REDIS_PORT` | Redis port | `6379` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | `localhost:29092` |
 | `CART_TTL` | ISO-8601 duration a cart is kept in Redis; blank/`PT0S` disables expiry | `P7D` |
+| `CHECKOUT_IDEMPOTENCY_TTL` | How long a processed `Idempotency-Key` is remembered | `PT1H` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins (patterns) | `*` |
+| `CORS_ALLOWED_METHODS` | Comma-separated allowed HTTP methods | `GET,POST,PUT,DELETE,OPTIONS` |
+| `RATE_LIMIT_ENABLED` | Enable the in-memory rate limiter | `true` |
+| `RATE_LIMIT_RPM` | Requests per minute per caller | `120` |
+| `TRACING_SAMPLE_RATE` | Trace sampling probability (0.0–1.0) | `0.1` |
 
 ## Kafka Events
 

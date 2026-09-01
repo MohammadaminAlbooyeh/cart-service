@@ -1,9 +1,9 @@
 package com.cart.repository;
 
+import com.cart.config.AppProperties;
 import com.cart.model.CartItem;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
@@ -23,23 +23,14 @@ public class CartRedisRepository {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
-
-    @Value("${app.cart.ttl:}")
-    private String cartTtlRaw;
+    private final AppProperties props;
 
     private String keyFor(String userId) {
         return CART_KEY_PREFIX + userId;
     }
 
-    private Duration cartTtl() {
-        if (cartTtlRaw == null || cartTtlRaw.isBlank()) {
-            return null;
-        }
-        return Duration.parse(cartTtlRaw.trim());
-    }
-
     private void applyTtl(String userId) {
-        Duration ttl = cartTtl();
+        Duration ttl = props.getCart().getTtl();
         if (ttl != null && !ttl.isZero() && !ttl.isNegative()) {
             redisTemplate.expire(keyFor(userId), ttl);
         }
@@ -95,5 +86,15 @@ public class CartRedisRepository {
 
     public long countItems(String userId) {
         return redisTemplate.opsForHash().size(keyFor(userId));
+    }
+
+    /**
+     * Atomically records an idempotency key; returns true when this call is the
+     * first to see the key (i.e. the caller should proceed).
+     */
+    public boolean tryStartCheckout(String idempotencyKey, Duration ttl) {
+        Boolean firstSeen = redisTemplate.opsForValue()
+                .setIfAbsent("checkout:idem:" + idempotencyKey, "1", ttl);
+        return Boolean.TRUE.equals(firstSeen);
     }
 }

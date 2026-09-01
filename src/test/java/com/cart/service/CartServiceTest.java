@@ -1,5 +1,6 @@
 package com.cart.service;
 
+import com.cart.config.AppProperties;
 import com.cart.messaging.CartEventProducer;
 import com.cart.model.CartItem;
 import com.cart.repository.CartRedisRepository;
@@ -31,6 +32,9 @@ class CartServiceTest {
 
     @Mock
     private CartEventProducer eventProducer;
+
+    @Mock
+    private AppProperties props;
 
     @InjectMocks
     private CartService cartService;
@@ -97,6 +101,17 @@ class CartServiceTest {
         when(repository.findAllItems("u1")).thenReturn(List.of());
         assertThatThrownBy(() -> cartService.checkout("u1"))
                 .isInstanceOf(IllegalStateException.class);
+        verify(eventProducer, never()).publishOrderCreated(any(), any());
+        verify(repository, never()).clear(any());
+    }
+
+    @Test
+    void checkoutWithDuplicateIdempotencyKeyDoesNotPublish() {
+        when(props.getCheckout()).thenReturn(new AppProperties.Checkout());
+        when(repository.tryStartCheckout(eq("key-1"), any())).thenReturn(false);
+
+        cartService.checkout("u1", "key-1");
+
         verify(eventProducer, never()).publishOrderCreated(any(), any());
         verify(repository, never()).clear(any());
     }

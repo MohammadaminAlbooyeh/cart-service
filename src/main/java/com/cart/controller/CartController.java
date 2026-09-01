@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -22,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/cart")
+@RequestMapping("/api/v1/cart")
 @RequiredArgsConstructor
 public class CartController {
 
@@ -67,8 +68,10 @@ public class CartController {
     }
 
     @PostMapping("/checkout")
-    public ResponseEntity<Void> checkout(Principal principal) {
-        cartService.checkout(principal.getName());
+    public ResponseEntity<Void> checkout(Principal principal,
+                                         @RequestHeader(value = "Idempotency-Key", required = false)
+                                         String idempotencyKey) {
+        cartService.checkout(principal.getName(), idempotencyKey);
         return ResponseEntity.accepted().build();
     }
 }
