@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Component
@@ -32,8 +33,13 @@ public class CartEventProducer {
                         .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add)
         );
         try {
-            kafkaTemplate.send(CHECKOUT_TOPIC, orderId, objectMapper.writeValueAsString(payload));
+            String json = objectMapper.writeValueAsString(payload);
+            // Block on the broker ack so a failed publish surfaces before the caller clears the cart.
+            kafkaTemplate.send(CHECKOUT_TOPIC, orderId, json).get(10, TimeUnit.SECONDS);
             log.info("Published {} event for order {} and user {}", CHECKOUT_TOPIC, orderId, userId);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while publishing checkout event", e);
         } catch (Exception e) {
             log.error("Failed to publish {} event for user {}", CHECKOUT_TOPIC, userId, e);
             throw new IllegalStateException("Could not publish checkout event", e);
