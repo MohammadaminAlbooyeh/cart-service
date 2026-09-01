@@ -1,5 +1,6 @@
 package com.cart.controller;
 
+import com.cart.dto.UpdateQuantityRequest;
 import com.cart.model.CartItem;
 import com.cart.service.CartService;
 import jakarta.validation.Valid;
@@ -12,7 +13,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -43,12 +43,8 @@ public class CartController {
     @PutMapping("/items/{productId}")
     public ResponseEntity<Void> updateQuantity(Principal principal,
                                                @PathVariable String productId,
-                                               @RequestBody Map<String, Integer> body) {
-        Integer quantity = body.get("quantity");
-        if (quantity == null) {
-            return ResponseEntity.badRequest().build();
-        }
-        cartService.updateQuantity(principal.getName(), productId, quantity);
+                                               @Valid @RequestBody UpdateQuantityRequest body) {
+        cartService.updateQuantity(principal.getName(), productId, body.getQuantity());
         return ResponseEntity.noContent().build();
     }
 

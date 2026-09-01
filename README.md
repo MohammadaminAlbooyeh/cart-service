@@ -96,9 +96,12 @@ cart-service/
     │   ├── java/com/cart/
     │   │   ├── CartApplication.java          # Spring Boot entry point
     │   │   ├── config/
-    │   │   │   └── SecurityConfig.java        # JWT resource server config
+    │   │   │   ├── SecurityConfig.java        # JWT resource server config
+    │   │   │   └── OpenApiConfig.java         # Swagger bearer-auth scheme
     │   │   ├── controller/
     │   │   │   └── CartController.java        # REST API (/api/cart)
+    │   │   ├── dto/
+    │   │   │   └── UpdateQuantityRequest.java
     │   │   ├── exception/
     │   │   │   └── GlobalExceptionHandler.java
     │   │   ├── messaging/
@@ -115,8 +118,12 @@ cart-service/
     └── test/
         └── java/com/cart/
             ├── CartCheckoutContractTest.java          # Kafka contract test
-            └── security/
-                └── CartControllerSecurityTest.java    # JWT auth tests
+            ├── controller/
+            │   └── CartControllerTest.java            # REST + validation tests
+            ├── security/
+            │   └── CartControllerSecurityTest.java    # JWT auth tests
+            └── service/
+                └── CartServiceTest.java               # Business logic unit tests
 ```
 
 ## Prerequisites
@@ -131,6 +138,9 @@ cart-service/
 ```bash
 docker compose up --build
 ```
+
+The image is built from source inside a multi-stage `Dockerfile`, so no local
+`mvn package` is required first.
 
 This starts Redis, Kafka, and the cart-service together on:
 - **API:** http://localhost:8082
@@ -150,8 +160,9 @@ mvn clean package
 # Start Redis
 redis-server
 
-# Start Kafka (adjust paths to your installation)
-# Kafka 2.8+ with KRaft mode:
+# Start Kafka (adjust paths to your installation).
+# The bundled docker-compose.yml runs Kafka with ZooKeeper (confluentinc images);
+# a standalone install can also use KRaft mode:
 kafka-server-start.sh config/kraft/server.properties
 
 # Run the app
@@ -190,6 +201,17 @@ All endpoints require a valid JWT Bearer token in the `Authorization` header. Th
 | `GET` | `/api/cart/total` | Calculate cart total |
 | `POST` | `/api/cart/checkout` | Publish checkout event + clear cart |
 
+Adding the same `productId` again increments the stored quantity rather than
+replacing it.
+
+### Public (no auth)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/actuator/health` | Liveness/readiness health check |
+| `GET` | `/swagger-ui.html` | Swagger UI |
+| `GET` | `/v3/api-docs` | OpenAPI spec |
+
 ## API Documentation
 
 Swagger UI is available at:
@@ -211,9 +233,11 @@ The service uses Spring Security as an OAuth2 resource server with JWT Bearer to
 ### Authentication Flow
 
 1. Client sends a request with `Authorization: Bearer <token>` header.
-2. Spring Security's `JwtDecoder` validates the token signature using the shared `JWT_SECRET`.
+2. Spring Security's `JwtDecoder` validates the token signature using the shared `JWT_SECRET` (bound to `app.jwt.secret`).
 3. The authenticated user identity (`Principal`) is injected into controller methods.
 4. The `sub` (subject) claim of the JWT is used as the `userId` for cart operations.
+
+`/actuator/health`, `/swagger-ui/**` and `/v3/api-docs/**` are the only unauthenticated paths.
 
 ### Environment Variables
 
@@ -223,6 +247,7 @@ The service uses Spring Security as an OAuth2 resource server with JWT Bearer to
 | `REDIS_HOST` | Redis host | `localhost` |
 | `REDIS_PORT` | Redis port | `6379` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | `localhost:29092` |
+| `CART_TTL` | ISO-8601 duration a cart is kept in Redis; blank/`PT0S` disables expiry | `P7D` |
 
 ## Kafka Events
 
@@ -267,11 +292,17 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-  security:
-    oauth2:
-      resource-server:
-        jwt:
-          secret: ${JWT_SECRET:dev-secret-change-me-in-production}
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-secret-change-me-in-production}
+  cart:
+    ttl: ${CART_TTL:P7D}   # ISO-8601 duration; blank/0 disables cart expiry
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
 
 springdoc:
   swagger-ui:

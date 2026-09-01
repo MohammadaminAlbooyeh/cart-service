@@ -21,12 +21,17 @@ public class CartService {
     }
 
     public void addItem(String userId, CartItem item) {
+        if (item.getProductId() == null || item.getProductId().isBlank()) {
+            throw new IllegalArgumentException("Product id is required");
+        }
         if (item.getQuantity() == null || item.getQuantity() <= 0) {
             throw new IllegalArgumentException("Quantity must be positive");
         }
         if (item.getUnitPrice() == null || item.getUnitPrice().signum() < 0) {
             throw new IllegalArgumentException("Unit price is required");
         }
+        cartRepository.findItem(userId, item.getProductId())
+                .ifPresent(existing -> item.setQuantity(existing.getQuantity() + item.getQuantity()));
         cartRepository.saveItem(userId, item);
     }
 
