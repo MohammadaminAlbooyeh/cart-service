@@ -87,16 +87,23 @@ Kafka topic: cart.checkout
 
 ```
 cart-service/
+├── .github/
+│   ├── dependabot.yml
+│   └── workflows/
+│       └── ci.yml
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pom.xml
 ├── README.md
 └── src/
+    ├── checkstyle/
+    │   └── checkstyle.xml         # Checkstyle rules
     ├── main/
     │   ├── java/com/cart/
     │   │   ├── CartApplication.java          # Spring Boot entry point
     │   │   ├── config/
     │   │   │   ├── AppProperties.java         # Typed configuration (app.*)
+    │   │   │   ├── KafkaTopicConfig.java     # Kafka topic auto-creation (cart.checkout)
     │   │   │   ├── OpenApiConfig.java         # Swagger bearer-auth scheme
     │   │   │   ├── RateLimitFilter.java       # In-memory rate limiter
     │   │   │   └── SecurityConfig.java        # JWT resource server + CORS
@@ -120,8 +127,14 @@ cart-service/
     └── test/
         └── java/com/cart/
             ├── CartCheckoutContractTest.java          # Kafka contract test
+            ├── config/
+            │   └── RateLimitFilterTest.java           # Rate limiter unit tests
             ├── controller/
             │   └── CartControllerTest.java            # REST + validation tests
+            ├── exception/
+            │   └── GlobalExceptionHandlerTest.java    # Exception handler tests
+            ├── repository/
+            │   └── CartRedisRepositoryTest.java      # Redis integration test (Testcontainers)
             ├── security/
             │   └── CartControllerSecurityTest.java    # JWT auth tests
             └── service/
@@ -151,6 +164,16 @@ This starts Redis, Kafka, and the cart-service together on:
 - **Kafka:** localhost:29092
 
 ## Build
+
+```bash
+mvn clean verify
+```
+
+`mvn verify` runs the full test suite, Checkstyle (0 violations), and
+SpotBugs static analysis. Testcontainers-based integration tests require a
+local Docker daemon.
+
+For a quick packaging without tests or analysis:
 
 ```bash
 mvn clean package
@@ -212,6 +235,7 @@ replacing it.
 |--------|----------|-------------|
 | `GET` | `/actuator/health` | Liveness/readiness health check |
 | `GET` | `/actuator/prometheus` | Prometheus metrics scrape endpoint |
+| `GET` | `/actuator/info` | Application info |
 | `GET` | `/swagger-ui.html` | Swagger UI |
 | `GET` | `/v3/api-docs` | OpenAPI spec |
 
@@ -329,17 +353,45 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Resilient producer: wait for all in-sync replicas, retry, stay idempotent.
+      acks: all
+      retries: 10
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        delivery.timeout.ms: 120000
+        retry.backoff.ms: 500
+
 app:
   jwt:
     secret: ${JWT_SECRET:dev-secret-change-me-in-production}
+    # When false, the service refuses to start with the built-in dev secret.
+    allow-insecure-secret: ${JWT_ALLOW_INSECURE_SECRET:true}
   cart:
-    ttl: ${CART_TTL:P7D}   # ISO-8601 duration; blank/0 disables cart expiry
+    # Time-to-live for a user's cart in Redis. Empty/0 disables expiry.
+    ttl: ${CART_TTL:P7D}
+  checkout:
+    # How long a processed Idempotency-Key is remembered.
+    idempotency-ttl: ${CHECKOUT_IDEMPOTENCY_TTL:PT1H}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+    allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS}
+  ratelimit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    requests-per-minute: ${RATE_LIMIT_RPM:120}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
 
 springdoc:
   swagger-ui:

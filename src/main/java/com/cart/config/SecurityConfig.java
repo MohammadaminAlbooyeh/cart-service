@@ -26,12 +26,12 @@ import java.nio.charset.StandardCharsets;
 public class SecurityConfig {
 
     private static final String[] PUBLIC_PATHS = {
-            "/swagger-ui.html",
-            "/swagger-ui/**",
-            "/v3/api-docs/**",
-            "/actuator/health/**",
-            "/actuator/prometheus",
-            "/actuator/info"
+        "/swagger-ui.html",
+        "/swagger-ui/**",
+        "/v3/api-docs/**",
+        "/actuator/health/**",
+        "/actuator/prometheus",
+        "/actuator/info"
     };
 
     private final AppProperties props;

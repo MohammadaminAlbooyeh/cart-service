@@ -10,5 +10,6 @@ RUN mvn -B -q clean package -DskipTests
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 COPY --from=build /build/target/*.jar app.jar
+RUN apk add --no-cache curl
 EXPOSE 8082
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -103,7 +103,7 @@ class CartControllerTest {
                 .expirationTime(Date.from(now.plus(1, ChronoUnit.HOURS)))
                 .build();
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
-        jwt.sign(new MACSigner(SECRET.getBytes()));
+        jwt.sign(new MACSigner(SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         return "Bearer " + jwt.serialize();
     }
 }
