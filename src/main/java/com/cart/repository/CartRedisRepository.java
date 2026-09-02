@@ -1,5 +1,6 @@
 package com.cart.repository;
 
+import com.cart.config.AppProperties;
 import com.cart.model.CartItem;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -7,6 +8,7 @@ import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -21,15 +23,24 @@ public class CartRedisRepository {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final AppProperties props;
 
     private String keyFor(String userId) {
         return CART_KEY_PREFIX + userId;
+    }
+
+    private void applyTtl(String userId) {
+        Duration ttl = props.getCart().getTtl();
+        if (ttl != null && !ttl.isZero() && !ttl.isNegative()) {
+            redisTemplate.expire(keyFor(userId), ttl);
+        }
     }
 
     public void saveItem(String userId, CartItem item) {
         try {
             HashOperations<String, String, String> ops = redisTemplate.opsForHash();
             ops.put(keyFor(userId), item.getProductId(), objectMapper.writeValueAsString(item));
+            applyTtl(userId);
         } catch (Exception e) {
             throw new IllegalStateException("Could not serialize cart item", e);
         }
@@ -75,5 +86,15 @@ public class CartRedisRepository {
 
     public long countItems(String userId) {
         return redisTemplate.opsForHash().size(keyFor(userId));
+    }
+
+    /**
+     * Atomically records an idempotency key; returns true when this call is the
+     * first to see the key (i.e. the caller should proceed).
+     */
+    public boolean tryStartCheckout(String idempotencyKey, Duration ttl) {
+        Boolean firstSeen = redisTemplate.opsForValue()
+                .setIfAbsent("checkout:idem:" + idempotencyKey, "1", ttl);
+        return Boolean.TRUE.equals(firstSeen);
     }
 }

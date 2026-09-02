@@ -1,5 +1,6 @@
 package com.cart.controller;
 
+import com.cart.dto.UpdateQuantityRequest;
 import com.cart.model.CartItem;
 import com.cart.service.CartService;
 import jakarta.validation.Valid;
@@ -22,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/cart")
+@RequestMapping("/api/v1/cart")
 @RequiredArgsConstructor
 public class CartController {
 
@@ -43,12 +44,8 @@ public class CartController {
     @PutMapping("/items/{productId}")
     public ResponseEntity<Void> updateQuantity(Principal principal,
                                                @PathVariable String productId,
-                                               @RequestBody Map<String, Integer> body) {
-        Integer quantity = body.get("quantity");
-        if (quantity == null) {
-            return ResponseEntity.badRequest().build();
-        }
-        cartService.updateQuantity(principal.getName(), productId, quantity);
+                                               @Valid @RequestBody UpdateQuantityRequest body) {
+        cartService.updateQuantity(principal.getName(), productId, body.getQuantity());
         return ResponseEntity.noContent().build();
     }
 
@@ -71,8 +68,10 @@ public class CartController {
     }
 
     @PostMapping("/checkout")
-    public ResponseEntity<Void> checkout(Principal principal) {
-        cartService.checkout(principal.getName());
+    public ResponseEntity<Void> checkout(Principal principal,
+                                         @RequestHeader(value = "Idempotency-Key", required = false)
+                                         String idempotencyKey) {
+        cartService.checkout(principal.getName(), idempotencyKey);
         return ResponseEntity.accepted().build();
     }
 }

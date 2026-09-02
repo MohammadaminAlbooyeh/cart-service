@@ -1,0 +1,50 @@
+version: 2
+
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns:
+          - "org.springframework.boot:*"
+          - "org.springframework.*:*"
+        update-types:
+          - "minor"
+          - "patch"
+      testcontainers:
+        patterns:
+          - "org.testcontainers:*"
+        update-types:
+          - "minor"
+          - "patch"
+      kafka:
+        patterns:
+          - "org.apache.kafka:*"
+          - "org.springframework.kafka:*"
+        update-types:
+          - "minor"
+          - "patch"
+      lombok:
+        patterns:
+          - "org.projectlombok:*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

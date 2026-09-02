@@ -87,18 +87,30 @@ Kafka topic: cart.checkout
 
 ```
 cart-service/
+├── .github/
+│   ├── dependabot.yml
+│   └── workflows/
+│       └── ci.yml
 ├── Dockerfile
 ├── docker-compose.yml
 ├── pom.xml
 ├── README.md
 └── src/
+    ├── checkstyle/
+    │   └── checkstyle.xml         # Checkstyle rules
     ├── main/
     │   ├── java/com/cart/
     │   │   ├── CartApplication.java          # Spring Boot entry point
     │   │   ├── config/
-    │   │   │   └── SecurityConfig.java        # JWT resource server config
+    │   │   │   ├── AppProperties.java         # Typed configuration (app.*)
+    │   │   │   ├── KafkaTopicConfig.java     # Kafka topic auto-creation (cart.checkout)
+    │   │   │   ├── OpenApiConfig.java         # Swagger bearer-auth scheme
+    │   │   │   ├── RateLimitFilter.java       # In-memory rate limiter
+    │   │   │   └── SecurityConfig.java        # JWT resource server + CORS
     │   │   ├── controller/
-    │   │   │   └── CartController.java        # REST API (/api/cart)
+    │   │   │   └── CartController.java        # REST API (/api/v1/cart)
+    │   │   ├── dto/
+    │   │   │   └── UpdateQuantityRequest.java
     │   │   ├── exception/
     │   │   │   └── GlobalExceptionHandler.java
     │   │   ├── messaging/
@@ -115,8 +127,18 @@ cart-service/
     └── test/
         └── java/com/cart/
             ├── CartCheckoutContractTest.java          # Kafka contract test
-            └── security/
-                └── CartControllerSecurityTest.java    # JWT auth tests
+            ├── config/
+            │   └── RateLimitFilterTest.java           # Rate limiter unit tests
+            ├── controller/
+            │   └── CartControllerTest.java            # REST + validation tests
+            ├── exception/
+            │   └── GlobalExceptionHandlerTest.java    # Exception handler tests
+            ├── repository/
+            │   └── CartRedisRepositoryTest.java      # Redis integration test (Testcontainers)
+            ├── security/
+            │   └── CartControllerSecurityTest.java    # JWT auth tests
+            └── service/
+                └── CartServiceTest.java               # Business logic unit tests
 ```
 
 ## Prerequisites
@@ -132,6 +154,9 @@ cart-service/
 docker compose up --build
 ```
 
+The image is built from source inside a multi-stage `Dockerfile`, so no local
+`mvn package` is required first.
+
 This starts Redis, Kafka, and the cart-service together on:
 - **API:** http://localhost:8082
 - **Swagger UI:** http://localhost:8082/swagger-ui.html
@@ -139,6 +164,16 @@ This starts Redis, Kafka, and the cart-service together on:
 - **Kafka:** localhost:29092
 
 ## Build
+
+```bash
+mvn clean verify
+```
+
+`mvn verify` runs the full test suite, Checkstyle (0 violations), and
+SpotBugs static analysis. Testcontainers-based integration tests require a
+local Docker daemon.
+
+For a quick packaging without tests or analysis:
 
 ```bash
 mvn clean package
@@ -150,8 +185,9 @@ mvn clean package
 # Start Redis
 redis-server
 
-# Start Kafka (adjust paths to your installation)
-# Kafka 2.8+ with KRaft mode:
+# Start Kafka (adjust paths to your installation).
+# The bundled docker-compose.yml runs Kafka with ZooKeeper (confluentinc images);
+# a standalone install can also use KRaft mode:
 kafka-server-start.sh config/kraft/server.properties
 
 # Run the app
@@ -182,13 +218,51 @@ All endpoints require a valid JWT Bearer token in the `Authorization` header. Th
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/cart` | Get all cart items for user |
-| `POST` | `/api/cart/items` | Add item to cart |
-| `PUT` | `/api/cart/items/{productId}` | Update item quantity |
-| `DELETE` | `/api/cart/items/{productId}` | Remove item from cart |
-| `DELETE` | `/api/cart` | Clear entire cart |
-| `GET` | `/api/cart/total` | Calculate cart total |
-| `POST` | `/api/cart/checkout` | Publish checkout event + clear cart |
+| `GET` | `/api/v1/cart` | Get all cart items for user |
+| `POST` | `/api/v1/cart/items` | Add item to cart |
+| `PUT` | `/api/v1/cart/items/{productId}` | Update item quantity |
+| `DELETE` | `/api/v1/cart/items/{productId}` | Remove item from cart |
+| `DELETE` | `/api/v1/cart` | Clear entire cart |
+| `GET` | `/api/v1/cart/total` | Calculate cart total |
+| `POST` | `/api/v1/cart/checkout` | Publish checkout event + clear cart |
+
+Adding the same `productId` again increments the stored quantity rather than
+replacing it.
+
+### Public (no auth)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/actuator/health` | Liveness/readiness health check |
+| `GET` | `/actuator/prometheus` | Prometheus metrics scrape endpoint |
+| `GET` | `/actuator/info` | Application info |
+| `GET` | `/swagger-ui.html` | Swagger UI |
+| `GET` | `/v3/api-docs` | OpenAPI spec |
+
+### Idempotent checkout
+
+`POST /api/v1/cart/checkout` accepts an optional `Idempotency-Key` header. A
+repeated key (within `CHECKOUT_IDEMPOTENCY_TTL`) is acknowledged with `202`
+without re-publishing the `cart.checkout` event, so client retries are safe.
+
+### Rate limiting
+
+Requests are limited per authenticated user (per client IP when anonymous) using
+an in-memory fixed window. Responses carry `X-RateLimit-Limit` /
+`X-RateLimit-Remaining`; exceeding the limit returns `429`. Disable with
+`RATE_LIMIT_ENABLED=false`. For multi-instance deployments move the counter to
+Redis.
+
+### Observability
+
+- Metrics: Micrometer + `/actuator/prometheus`
+- Tracing: Micrometer Tracing (Brave bridge); sample rate via `TRACING_SAMPLE_RATE`
+
+### Kafka producer resilience
+
+The producer runs with `acks=all`, idempotence enabled and retries
+(`delivery.timeout.ms=120000`). `checkout()` blocks on the broker ack, so a
+failed publish surfaces as `409` and the cart is **not** cleared.
 
 ## API Documentation
 
@@ -211,18 +285,30 @@ The service uses Spring Security as an OAuth2 resource server with JWT Bearer to
 ### Authentication Flow
 
 1. Client sends a request with `Authorization: Bearer <token>` header.
-2. Spring Security's `JwtDecoder` validates the token signature using the shared `JWT_SECRET`.
+2. Spring Security's `JwtDecoder` validates the token signature using the shared `JWT_SECRET` (bound to `app.jwt.secret`).
 3. The authenticated user identity (`Principal`) is injected into controller methods.
 4. The `sub` (subject) claim of the JWT is used as the `userId` for cart operations.
+
+`/actuator/health/**`, `/actuator/prometheus`, `/actuator/info`, `/swagger-ui/**`
+and `/v3/api-docs/**` are the only unauthenticated paths. CORS is configurable
+via `CORS_ALLOWED_ORIGINS` / `CORS_ALLOWED_METHODS`.
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `JWT_SECRET` | HMAC-SHA256 secret used to validate JWT Bearer tokens | `dev-secret-change-me-in-production` |
+| `JWT_ALLOW_INSECURE_SECRET` | When `false`, the service refuses to start with the built-in dev secret | `true` |
 | `REDIS_HOST` | Redis host | `localhost` |
 | `REDIS_PORT` | Redis port | `6379` |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka bootstrap servers | `localhost:29092` |
+| `CART_TTL` | ISO-8601 duration a cart is kept in Redis; blank/`PT0S` disables expiry | `P7D` |
+| `CHECKOUT_IDEMPOTENCY_TTL` | How long a processed `Idempotency-Key` is remembered | `PT1H` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins (patterns) | `*` |
+| `CORS_ALLOWED_METHODS` | Comma-separated allowed HTTP methods | `GET,POST,PUT,DELETE,OPTIONS` |
+| `RATE_LIMIT_ENABLED` | Enable the in-memory rate limiter | `true` |
+| `RATE_LIMIT_RPM` | Requests per minute per caller | `120` |
+| `TRACING_SAMPLE_RATE` | Trace sampling probability (0.0–1.0) | `0.1` |
 
 ## Kafka Events
 
@@ -267,11 +353,45 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-  security:
-    oauth2:
-      resource-server:
-        jwt:
-          secret: ${JWT_SECRET:dev-secret-change-me-in-production}
+      # Resilient producer: wait for all in-sync replicas, retry, stay idempotent.
+      acks: all
+      retries: 10
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        delivery.timeout.ms: 120000
+        retry.backoff.ms: 500
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-secret-change-me-in-production}
+    # When false, the service refuses to start with the built-in dev secret.
+    allow-insecure-secret: ${JWT_ALLOW_INSECURE_SECRET:true}
+  cart:
+    # Time-to-live for a user's cart in Redis. Empty/0 disables expiry.
+    ttl: ${CART_TTL:P7D}
+  checkout:
+    # How long a processed Idempotency-Key is remembered.
+    idempotency-ttl: ${CHECKOUT_IDEMPOTENCY_TTL:PT1H}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+    allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS}
+  ratelimit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    requests-per-minute: ${RATE_LIMIT_RPM:120}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
 
 springdoc:
   swagger-ui:

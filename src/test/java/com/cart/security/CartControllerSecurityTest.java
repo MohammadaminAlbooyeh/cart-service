@@ -41,7 +41,7 @@ class CartControllerSecurityTest {
 
     @Test
     void rejectsRequestWithNoToken() throws Exception {
-        mockMvc.perform(get("/api/cart"))
+        mockMvc.perform(get("/api/v1/cart"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -49,7 +49,7 @@ class CartControllerSecurityTest {
     void rejectsRequestWithInvalidSignature() throws Exception {
         String token = signedToken("u-1", "wrong-secret-wrong-secret-wrong-secret");
 
-        mockMvc.perform(get("/api/cart").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get("/api/v1/cart").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -57,7 +57,7 @@ class CartControllerSecurityTest {
     void rejectsExpiredToken() throws Exception {
         String token = expiredToken("u-1");
 
-        mockMvc.perform(get("/api/cart").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get("/api/v1/cart").header("Authorization", "Bearer " + token))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -66,7 +66,7 @@ class CartControllerSecurityTest {
         when(cartService.getCart("u-42")).thenReturn(List.of());
         String token = signedToken("u-42", SECRET);
 
-        mockMvc.perform(get("/api/cart").header("Authorization", "Bearer " + token))
+        mockMvc.perform(get("/api/v1/cart").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
     }
 
@@ -78,7 +78,7 @@ class CartControllerSecurityTest {
                 .expirationTime(Date.from(now.plus(1, ChronoUnit.HOURS)))
                 .build();
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
-        jwt.sign(new MACSigner(secret.getBytes()));
+        jwt.sign(new MACSigner(secret.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         return jwt.serialize();
     }
 
@@ -90,7 +90,7 @@ class CartControllerSecurityTest {
                 .expirationTime(Date.from(now.minus(1, ChronoUnit.HOURS)))
                 .build();
         SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims);
-        jwt.sign(new MACSigner(SECRET.getBytes()));
+        jwt.sign(new MACSigner(SECRET.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         return jwt.serialize();
     }
 }
